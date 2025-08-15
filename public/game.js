@@ -18,12 +18,15 @@ const ws = new WebSocket(wsUrl);
 
 let localPlayerId = null;
 let players = {};
+let mapLayout = [];
+let tileTypes = {};
+const TILE_SIZE = 32;
 
 const keys = {};
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 32; // smaller for collision
-const hitboxHeight = 40; // smaller for collision
+const hitboxWidth = 28; // smaller for collision
+const hitboxHeight = 36; // smaller for collision
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
 const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
 const walkSpeed = 2;
@@ -137,8 +140,6 @@ function recolorSprite(image, color) {
   return newCanvas;
 }
 
-
-
 ws.onopen = () => console.log('Connected to server');
 
 ws.onmessage = event => {
@@ -146,6 +147,10 @@ ws.onmessage = event => {
   switch (data.type) {
     case 'assign_id':
       localPlayerId = data.id;
+      break;
+    case 'map':
+      mapLayout = data.layout;
+      tileTypes = data.tiles;
       break;
     case 'update':
       if (!allSpritesLoaded) return;
@@ -187,8 +192,29 @@ ws.onmessage = event => {
   }
 };
 
+function drawMap() {
+  if (!mapLayout.length) return;
+
+  const tileColors = {
+    0: '#808080', // Floor - Gray
+    1: '#303030', // Wall - Dark Gray
+    2: '#964B00', // Door - Brown
+    3: '#654321', // Locked Door - Dark Brown
+    4: '#0000FF'  // Stairs - Blue
+  };
+
+  for (let y = 0; y < mapLayout.length; y++) {
+    for (let x = 0; x < mapLayout[y].length; x++) {
+      const tileId = mapLayout[y][x];
+      ctx.fillStyle = tileColors[tileId] || '#FFFFFF'; // Default to white if unknown
+      ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawMap();
 
   for (const id in players) {
     const player = players[id];
@@ -223,29 +249,25 @@ function draw() {
   }
 }
 
-function handleMovement() {
+function gameLoop() {
+  // handleMovement(); // No longer needed here
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function sendInputState() {
   if (!localPlayerId || !players[localPlayerId]) return;
 
   const player = players[localPlayerId];
-  let action = player.action;
-  let direction = player.direction;
-
-  // Do not send updates if an attack is in progress locally.
-  // The server will eventually set the action back to IDLE.
-  if (action.startsWith('ATTACK')) {
-    // we can send an empty message just to keep the connection alive if we want
-    // ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
-    return;
-  }
-
+  let action = 'IDLE';
+  let direction = player.direction; // Keep last direction
   let moved = false;
 
+  // Determine action and direction based on current keys
   if (keys['KeyA']) {
     action = 'ATTACK 1';
-    player.frame = 0; // Reset frame on new action
   } else if (keys['KeyS']) {
     action = 'ATTACK 2';
-    player.frame = 0; // Reset frame on new action
   } else {
     if (keys['ArrowUp'] || keys['KeyK']) {
       direction = 'up';
@@ -262,25 +284,23 @@ function handleMovement() {
       direction = 'right';
       moved = true;
     }
-
     action = moved ? 'RUN' : 'IDLE';
   }
-
-  // Update local player state for immediate feedback before server confirmation
-  player.action = action;
-  player.direction = direction;
 
   // Send input state to the server
   ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
 }
 
-function gameLoop() {
-  handleMovement();
-  draw();
-  requestAnimationFrame(gameLoop);
-}
+document.addEventListener('keydown', e => {
+  if (!keys[e.code]) { // Only send if the key state changes
+    keys[e.code] = true;
+    sendInputState();
+  }
+});
 
-document.addEventListener('keydown', e => { keys[e.code] = true; });
-document.addEventListener('keyup', e => { keys[e.code] = false; });
+document.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  sendInputState();
+});
 
 loadBaseSprites();

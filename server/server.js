@@ -6,6 +6,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+const { TILE_SIZE, tileTypes, mapLayout } = require('./map');
+
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -15,8 +17,8 @@ const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'
 // Server-side game constants
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 32; // smaller for collision
-const hitboxHeight = 40; // smaller for collision
+const hitboxWidth = 28; // smaller for collision
+const hitboxHeight = 36; // smaller for collision
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
 const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
 const canvasWidth = 800;
@@ -35,12 +37,35 @@ function isValidPosition(newPos, playerId) {
     height: hitboxHeight
   };
 
-  // Wall collision
+  // 1. Check canvas boundaries
   if (newHitbox.x < 0 || newHitbox.x + newHitbox.width > canvasWidth || newHitbox.y < 0 || newHitbox.y + newHitbox.height > canvasHeight) {
     return false;
   }
 
-  // Player collision
+  // 2. Check tile map collision
+  // Get the corners of the hitbox
+  const topLeft = { x: newHitbox.x, y: newHitbox.y };
+  const topRight = { x: newHitbox.x + newHitbox.width, y: newHitbox.y };
+  const bottomLeft = { x: newHitbox.x, y: newHitbox.y + newHitbox.height };
+  const bottomRight = { x: newHitbox.x + newHitbox.width, y: newHitbox.y + newHitbox.height };
+
+  // Convert corner coordinates to tile indices
+  const cornersInTiles = [
+    { x: Math.floor(topLeft.x / TILE_SIZE), y: Math.floor(topLeft.y / TILE_SIZE) },
+    { x: Math.floor(topRight.x / TILE_SIZE), y: Math.floor(topRight.y / TILE_SIZE) },
+    { x: Math.floor(bottomLeft.x / TILE_SIZE), y: Math.floor(bottomLeft.y / TILE_SIZE) },
+    { x: Math.floor(bottomRight.x / TILE_SIZE), y: Math.floor(bottomRight.y / TILE_SIZE) }
+  ];
+
+  for (const corner of cornersInTiles) {
+    const tileId = mapLayout[corner.y] && mapLayout[corner.y][corner.x];
+    if (tileId === undefined || !tileTypes[tileId] || !tileTypes[tileId].walkable) {
+      return false; // Collision with a non-walkable tile
+    }
+  }
+
+
+  // 3. Check player collision
   for (const id in players) {
     if (id !== playerId && players[id]) {
       const otherPlayer = players[id];
@@ -68,6 +93,47 @@ function isValidPosition(newPos, playerId) {
 const MAX_MESSAGES_PER_SECOND = 60;
 const ONE_SECOND = 1000;
 
+// Find all walkable tiles and store their coordinates
+const walkableTiles = [];
+for (let y = 0; y < mapLayout.length; y++) {
+  for (let x = 0; x < mapLayout[y].length; x++) {
+    const tileId = mapLayout[y][x];
+    if (tileTypes[tileId] && tileTypes[tileId].walkable) {
+      walkableTiles.push({ x, y });
+    }
+  }
+}
+
+function getSafeSpawnPoint() {
+  let spawnPoint = null;
+  let attempts = 0;
+  while (spawnPoint === null && attempts < 100) {
+    const randomTile = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+    // Center the hitbox in the middle of the tile
+    const hitboxX = randomTile.x * TILE_SIZE + (TILE_SIZE - hitboxWidth) / 2;
+    const hitboxY = randomTile.y * TILE_SIZE + (TILE_SIZE - hitboxHeight) / 2;
+
+    const potentialPoint = {
+      x: hitboxX - hitboxOffsetX,
+      y: hitboxY - hitboxOffsetY
+    };
+
+    // Use isValidPosition to ensure the entire hitbox is clear.
+    // We pass a dummy playerId because no player exists yet.
+    if (isValidPosition(potentialPoint, 'dummy_id_for_spawn_check')) {
+      spawnPoint = potentialPoint;
+    }
+    attempts++;
+  }
+  if (!spawnPoint) {
+    // As a fallback, just use the first walkable tile. This should rarely happen.
+    const fallbackTile = walkableTiles[0];
+    spawnPoint = { x: fallbackTile.x * TILE_SIZE, y: fallbackTile.y * TILE_SIZE };
+    console.error("Could not find a valid spawn point after 100 attempts. Using fallback.");
+  }
+  return spawnPoint;
+}
+
 wss.on('connection', ws => {
   const id = Math.random().toString(36).substr(2, 9);
   console.log(`Player ${id} connected`);
@@ -79,10 +145,12 @@ wss.on('connection', ws => {
 
   ws.messageTimestamps = [];
 
+  const spawnPoint = getSafeSpawnPoint();
+
   // Initialize player with all required properties for the new animation system
   players[id] = {
-    x: Math.floor(Math.random() * (canvasWidth - playerWidth)),
-    y: Math.floor(Math.random() * (canvasHeight - playerHeight)),
+    x: spawnPoint.x,
+    y: spawnPoint.y,
     direction: 'down',
     action: 'IDLE',
     id: id,
@@ -93,6 +161,12 @@ wss.on('connection', ws => {
 
   // Assign the new player their ID
   ws.send(JSON.stringify({ type: 'assign_id', id }));
+
+  // Send the map layout to the new player
+  ws.send(JSON.stringify({ type: 'map', layout: mapLayout, tiles: tileTypes }));
+
+  // Send the complete player list to the new player and inform others
+  broadcast({ type: 'update', players });
 
   ws.on('message', message => {
     const now = Date.now();
@@ -161,18 +235,22 @@ function gameTick() {
 
     if (player.keys['ArrowUp'] || player.keys['KeyK']) {
       newPos.y -= currentSpeed;
+      player.direction = 'up';
       moved = true;
     }
     if (player.keys['ArrowDown'] || player.keys['KeyJ']) {
       newPos.y += currentSpeed;
+      player.direction = 'down';
       moved = true;
     }
     if (player.keys['ArrowLeft'] || player.keys['KeyH']) {
       newPos.x -= currentSpeed;
+      player.direction = 'left';
       moved = true;
     }
     if (player.keys['ArrowRight'] || player.keys['KeyL']) {
       newPos.x += currentSpeed;
+      player.direction = 'right';
       moved = true;
     }
 
