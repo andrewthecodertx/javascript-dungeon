@@ -47,7 +47,6 @@ wss.on('connection', ws => {
   // Inform all other players about the new player
   broadcast({ type: 'update', players });
 
-
   ws.on('message', message => {
     try {
       const data = JSON.parse(message);

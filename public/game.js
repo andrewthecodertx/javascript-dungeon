@@ -18,8 +18,8 @@ const ws = new WebSocket(wsUrl);
 
 let localPlayerId = null;
 let players = {};
-const keys = {};
 
+const keys = {};
 const playerWidth = 96;
 const playerHeight = 80;
 const hitboxWidth = 32; // smaller for collision
@@ -137,7 +137,6 @@ function recolorSprite(image, color) {
   return newCanvas;
 }
 
-
 function isValidMove(newPos, playerId) {
   const newHitbox = {
     x: newPos.x + hitboxOffsetX,
@@ -247,7 +246,6 @@ function draw() {
       player.frame = 0;
     }
 
-
     const spriteSheet = player.sprites[player.action][player.direction];
     if (spriteSheet) {
       const frameX = player.frame * playerWidth;
@@ -259,7 +257,6 @@ function draw() {
     }
   }
 }
-
 
 function handleMovement() {
   if (!localPlayerId || !players[localPlayerId]) return;
