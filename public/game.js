@@ -137,42 +137,7 @@ function recolorSprite(image, color) {
   return newCanvas;
 }
 
-function isValidMove(newPos, playerId) {
-  const newHitbox = {
-    x: newPos.x + hitboxOffsetX,
-    y: newPos.y + hitboxOffsetY,
-    width: hitboxWidth,
-    height: hitboxHeight
-  };
 
-  // Wall collision
-  if (newHitbox.x < 0 || newHitbox.x + newHitbox.width > canvas.width || newHitbox.y < 0 || newHitbox.y + newHitbox.height > canvas.height) {
-    return false;
-  }
-
-  // Player collision
-  for (const id in players) {
-    if (id !== playerId && players[id]) {
-      const otherPlayer = players[id];
-      const otherHitbox = {
-        x: otherPlayer.x + hitboxOffsetX,
-        y: otherPlayer.y + hitboxOffsetY,
-        width: hitboxWidth,
-        height: hitboxHeight
-      };
-
-      if (
-        newHitbox.x < otherHitbox.x + otherHitbox.width &&
-        newHitbox.x + newHitbox.width > otherHitbox.x &&
-        newHitbox.y < otherHitbox.y + otherHitbox.height &&
-        newHitbox.y + newHitbox.height > otherHitbox.y
-      ) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
 
 ws.onopen = () => console.log('Connected to server');
 
@@ -262,48 +227,51 @@ function handleMovement() {
   if (!localPlayerId || !players[localPlayerId]) return;
 
   const player = players[localPlayerId];
-  if (player.action.startsWith('ATTACK')) return; // Don't allow movement during attack
+  let action = player.action;
+  let direction = player.direction;
+
+  // Do not send updates if an attack is in progress locally.
+  // The server will eventually set the action back to IDLE.
+  if (action.startsWith('ATTACK')) {
+    // we can send an empty message just to keep the connection alive if we want
+    // ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
+    return;
+  }
 
   let moved = false;
-  const newPos = { x: player.x, y: player.y };
-  const currentSpeed = (keys['ShiftLeft'] || keys['ShiftRight']) ? runSpeed : walkSpeed;
 
   if (keys['KeyA']) {
-    player.action = 'ATTACK 1';
-    player.frame = 0;
+    action = 'ATTACK 1';
+    player.frame = 0; // Reset frame on new action
   } else if (keys['KeyS']) {
-    player.action = 'ATTACK 2';
-    player.frame = 0;
+    action = 'ATTACK 2';
+    player.frame = 0; // Reset frame on new action
   } else {
     if (keys['ArrowUp'] || keys['KeyK']) {
-      newPos.y -= currentSpeed;
-      player.direction = 'up';
+      direction = 'up';
       moved = true;
     } else if (keys['ArrowDown'] || keys['KeyJ']) {
-      newPos.y += currentSpeed;
-      player.direction = 'down';
+      direction = 'down';
       moved = true;
     }
 
     if (keys['ArrowLeft'] || keys['KeyH']) {
-      newPos.x -= currentSpeed;
-      player.direction = 'left';
+      direction = 'left';
       moved = true;
     } else if (keys['ArrowRight'] || keys['KeyL']) {
-      newPos.x += currentSpeed;
-      player.direction = 'right';
+      direction = 'right';
       moved = true;
     }
 
-    player.action = moved ? 'RUN' : 'IDLE';
-
-    if (moved && isValidMove(newPos, localPlayerId)) {
-      player.x = newPos.x;
-      player.y = newPos.y;
-    }
+    action = moved ? 'RUN' : 'IDLE';
   }
-  // Always send state to server to keep it in sync
-  ws.send(JSON.stringify({ type: 'move', player }));
+
+  // Update local player state for immediate feedback before server confirmation
+  player.action = action;
+  player.direction = direction;
+
+  // Send input state to the server
+  ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
 }
 
 function gameLoop() {

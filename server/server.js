@@ -12,12 +12,58 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 let players = {};
 const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
 
-// We don't need server-side validation for this example,
-// but this is where you'd put it.
-// const playerWidth = 96;
-// const playerHeight = 80;
-// const canvasWidth = 800;
-// const canvasHeight = 600;
+// Server-side game constants
+const playerWidth = 96;
+const playerHeight = 80;
+const hitboxWidth = 32; // smaller for collision
+const hitboxHeight = 40; // smaller for collision
+const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
+const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
+const canvasWidth = 800;
+const canvasHeight = 600;
+const walkSpeed = 2;
+const runSpeed = 4;
+const validActions = ['IDLE', 'RUN', 'ATTACK 1', 'ATTACK 2'];
+const validDirections = ['up', 'down', 'left', 'right'];
+
+
+function isValidPosition(newPos, playerId) {
+  const newHitbox = {
+    x: newPos.x + hitboxOffsetX,
+    y: newPos.y + hitboxOffsetY,
+    width: hitboxWidth,
+    height: hitboxHeight
+  };
+
+  // Wall collision
+  if (newHitbox.x < 0 || newHitbox.x + newHitbox.width > canvasWidth || newHitbox.y < 0 || newHitbox.y + newHitbox.height > canvasHeight) {
+    return false;
+  }
+
+  // Player collision
+  for (const id in players) {
+    if (id !== playerId && players[id]) {
+      const otherPlayer = players[id];
+      const otherHitbox = {
+        x: otherPlayer.x + hitboxOffsetX,
+        y: otherPlayer.y + hitboxOffsetY,
+        width: hitboxWidth,
+        height: hitboxHeight
+      };
+
+      if (
+        newHitbox.x < otherHitbox.x + otherHitbox.width &&
+        newHitbox.x + newHitbox.width > otherHitbox.x &&
+        newHitbox.y < otherHitbox.y + otherHitbox.height &&
+        newHitbox.y + newHitbox.height > otherHitbox.y
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 
 wss.on('connection', ws => {
   const id = Math.random().toString(36).substr(2, 9);
@@ -30,34 +76,37 @@ wss.on('connection', ws => {
 
   // Initialize player with all required properties for the new animation system
   players[id] = {
-    x: Math.floor(Math.random() * 700) + 50,
-    y: Math.floor(Math.random() * 500) + 50,
+    x: Math.floor(Math.random() * (canvasWidth - playerWidth)),
+    y: Math.floor(Math.random() * (canvasHeight - playerHeight)),
     direction: 'down',
     action: 'IDLE',
     id: id,
-    color: colors[Math.floor(Math.random() * colors.length)]
+    color: colors[Math.floor(Math.random() * colors.length)],
+    keys: {}, // Store key state on server
+    isRunning: false
   };
 
   // Assign the new player their ID
   ws.send(JSON.stringify({ type: 'assign_id', id }));
 
-  // Send the current state of all players to the new player
-  ws.send(JSON.stringify({ type: 'update', players }));
-
-  // Inform all other players about the new player
-  broadcast({ type: 'update', players });
-
   ws.on('message', message => {
     try {
       const data = JSON.parse(message);
-      if (data.type === 'move' && players[id]) {
-        // Update player state from client message
-        const player = data.player;
-        players[id].x = player.x;
-        players[id].y = player.y;
-        players[id].direction = player.direction;
-        players[id].action = player.action;
-        broadcast({ type: 'update', players });
+      const player = players[id];
+      if (!player) return;
+
+      // Instead of accepting position, we accept input state
+      if (data.type === 'input') {
+        // Sanitize and validate inputs
+        if (data.keys) {
+          player.keys = data.keys; // Store the state of all keys
+        }
+        if (typeof data.action === 'string' && validActions.includes(data.action)) {
+          player.action = data.action;
+        }
+        if (typeof data.direction === 'string' && validDirections.includes(data.direction)) {
+          player.direction = data.direction;
+        }
       }
     } catch (error) {
       console.error("Failed to parse message or update player:", error);
@@ -85,6 +134,44 @@ function broadcast(data) {
   });
 }
 
+function gameTick() {
+  // Process movement for all players
+  for (const id in players) {
+    const player = players[id];
+    if (player.action.startsWith('ATTACK')) continue; // No movement during attack
+
+    const currentSpeed = (player.keys['ShiftLeft'] || player.keys['ShiftRight']) ? runSpeed : walkSpeed;
+    const newPos = { x: player.x, y: player.y };
+    let moved = false;
+
+    if (player.keys['ArrowUp'] || player.keys['KeyK']) {
+      newPos.y -= currentSpeed;
+      moved = true;
+    }
+    if (player.keys['ArrowDown'] || player.keys['KeyJ']) {
+      newPos.y += currentSpeed;
+      moved = true;
+    }
+    if (player.keys['ArrowLeft'] || player.keys['KeyH']) {
+      newPos.x -= currentSpeed;
+      moved = true;
+    }
+    if (player.keys['ArrowRight'] || player.keys['KeyL']) {
+      newPos.x += currentSpeed;
+      moved = true;
+    }
+
+    if (moved && isValidPosition(newPos, id)) {
+      player.x = newPos.x;
+      player.y = newPos.y;
+    }
+  }
+
+  // Broadcast the updated state to all clients
+  broadcast({ type: 'update', players });
+}
+
+
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {
     if (ws.isAlive === false) return ws.terminate();
@@ -93,6 +180,9 @@ const interval = setInterval(function ping() {
     ws.ping();
   });
 }, 30000);
+
+// Start the game loop
+setInterval(gameTick, 1000 / 60); // 60 times per second
 
 wss.on('close', function close() {
   clearInterval(interval);
