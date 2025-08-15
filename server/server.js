@@ -65,6 +65,9 @@ function isValidPosition(newPos, playerId) {
 }
 
 
+const MAX_MESSAGES_PER_SECOND = 60;
+const ONE_SECOND = 1000;
+
 wss.on('connection', ws => {
   const id = Math.random().toString(36).substr(2, 9);
   console.log(`Player ${id} connected`);
@@ -73,6 +76,8 @@ wss.on('connection', ws => {
   ws.on('pong', () => {
     ws.isAlive = true;
   });
+
+  ws.messageTimestamps = [];
 
   // Initialize player with all required properties for the new animation system
   players[id] = {
@@ -90,6 +95,16 @@ wss.on('connection', ws => {
   ws.send(JSON.stringify({ type: 'assign_id', id }));
 
   ws.on('message', message => {
+    const now = Date.now();
+    ws.messageTimestamps = ws.messageTimestamps.filter(timestamp => now - timestamp < ONE_SECOND);
+
+    if (ws.messageTimestamps.length >= MAX_MESSAGES_PER_SECOND) {
+      console.log(`Player ${id} exceeded message rate limit. Disconnecting.`);
+      ws.terminate();
+      return;
+    }
+    ws.messageTimestamps.push(now);
+
     try {
       const data = JSON.parse(message);
       const player = players[id];
