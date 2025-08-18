@@ -17,17 +17,16 @@ const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'
 // Server-side game constants
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 28; // smaller for collision
-const hitboxHeight = 36; // smaller for collision
+const hitboxWidth = 16; // smaller for collision
+const hitboxHeight = 28; // Final height adjustment to cover feet
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
-const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
+const hitboxOffsetY = 30; // Fine-tuned offset based on detailed feedback
 const canvasWidth = 800;
 const canvasHeight = 600;
 const walkSpeed = 2;
 const runSpeed = 4;
 const validActions = ['IDLE', 'RUN', 'ATTACK 1', 'ATTACK 2'];
 const validDirections = ['up', 'down', 'left', 'right'];
-
 
 function isValidPosition(newPos, playerId) {
   const newHitbox = {
@@ -43,27 +42,26 @@ function isValidPosition(newPos, playerId) {
   }
 
   // 2. Check tile map collision
-  // Get the corners of the hitbox
-  const topLeft = { x: newHitbox.x, y: newHitbox.y };
-  const topRight = { x: newHitbox.x + newHitbox.width, y: newHitbox.y };
-  const bottomLeft = { x: newHitbox.x, y: newHitbox.y + newHitbox.height };
-  const bottomRight = { x: newHitbox.x + newHitbox.width, y: newHitbox.y + newHitbox.height };
-
-  // Convert corner coordinates to tile indices
-  const cornersInTiles = [
-    { x: Math.floor(topLeft.x / TILE_SIZE), y: Math.floor(topLeft.y / TILE_SIZE) },
-    { x: Math.floor(topRight.x / TILE_SIZE), y: Math.floor(topRight.y / TILE_SIZE) },
-    { x: Math.floor(bottomLeft.x / TILE_SIZE), y: Math.floor(bottomLeft.y / TILE_SIZE) },
-    { x: Math.floor(bottomRight.x / TILE_SIZE), y: Math.floor(bottomRight.y / TILE_SIZE) }
+  const corners = [
+    { x: newHitbox.x, y: newHitbox.y }, // top-left
+    { x: newHitbox.x + newHitbox.width, y: newHitbox.y }, // top-right
+    { x: newHitbox.x, y: newHitbox.y + newHitbox.height }, // bottom-left
+    { x: newHitbox.x + newHitbox.width, y: newHitbox.y + newHitbox.height } // bottom-right
   ];
 
-  for (const corner of cornersInTiles) {
-    const tileId = mapLayout[corner.y] && mapLayout[corner.y][corner.x];
-    if (tileId === undefined || !tileTypes[tileId] || !tileTypes[tileId].walkable) {
-      return false; // Collision with a non-walkable tile
+  for (const corner of corners) {
+    const tileX = Math.floor(corner.x / TILE_SIZE);
+    const tileY = Math.floor(corner.y / TILE_SIZE);
+
+    if (tileY < 0 || tileY >= mapLayout.length || tileX < 0 || tileX >= mapLayout[0].length) {
+      return false; // Out of map bounds
+    }
+
+    const tileType = mapLayout[tileY][tileX];
+    if (!tileTypes[tileType] || !tileTypes[tileType].walkable) {
+      return false; // Not a walkable tile
     }
   }
-
 
   // 3. Check player collision
   for (const id in players) {
@@ -89,50 +87,40 @@ function isValidPosition(newPos, playerId) {
   return true;
 }
 
-
-const MAX_MESSAGES_PER_SECOND = 60;
-const ONE_SECOND = 1000;
-
-// Find all walkable tiles and store their coordinates
 const walkableTiles = [];
 for (let y = 0; y < mapLayout.length; y++) {
   for (let x = 0; x < mapLayout[y].length; x++) {
-    const tileId = mapLayout[y][x];
-    if (tileTypes[tileId] && tileTypes[tileId].walkable) {
+    if (tileTypes[mapLayout[y][x]].walkable) {
       walkableTiles.push({ x, y });
     }
   }
 }
 
 function getSafeSpawnPoint() {
-  let spawnPoint = null;
   let attempts = 0;
-  while (spawnPoint === null && attempts < 100) {
+  while (attempts < 100) {
     const randomTile = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
-    // Center the hitbox in the middle of the tile
-    const hitboxX = randomTile.x * TILE_SIZE + (TILE_SIZE - hitboxWidth) / 2;
-    const hitboxY = randomTile.y * TILE_SIZE + (TILE_SIZE - hitboxHeight) / 2;
-
-    const potentialPoint = {
-      x: hitboxX - hitboxOffsetX,
-      y: hitboxY - hitboxOffsetY
+    const potentialPos = {
+      x: randomTile.x * TILE_SIZE + (TILE_SIZE - playerWidth) / 2,
+      y: randomTile.y * TILE_SIZE + (TILE_SIZE - playerHeight) / 2
     };
 
-    // Use isValidPosition to ensure the entire hitbox is clear.
-    // We pass a dummy playerId because no player exists yet.
-    if (isValidPosition(potentialPoint, 'dummy_id_for_spawn_check')) {
-      spawnPoint = potentialPoint;
+    if (isValidPosition(potentialPos, null)) {
+      return potentialPos;
     }
     attempts++;
   }
-  if (!spawnPoint) {
-    // As a fallback, just use the first walkable tile. This should rarely happen.
-    const fallbackTile = walkableTiles[0];
-    spawnPoint = { x: fallbackTile.x * TILE_SIZE, y: fallbackTile.y * TILE_SIZE };
-    console.error("Could not find a valid spawn point after 100 attempts. Using fallback.");
-  }
-  return spawnPoint;
+  // Fallback if no safe spot is found
+  const fallbackTile = walkableTiles[0] || { x: 1, y: 1 };
+  return {
+    x: fallbackTile.x * TILE_SIZE,
+    y: fallbackTile.y * TILE_SIZE
+  };
 }
+
+
+const MAX_MESSAGES_PER_SECOND = 60;
+const ONE_SECOND = 1000;
 
 wss.on('connection', ws => {
   const id = Math.random().toString(36).substr(2, 9);
@@ -144,7 +132,6 @@ wss.on('connection', ws => {
   });
 
   ws.messageTimestamps = [];
-
   const spawnPoint = getSafeSpawnPoint();
 
   // Initialize player with all required properties for the new animation system
@@ -231,39 +218,47 @@ function gameTick() {
 
     const currentSpeed = (player.keys['ShiftLeft'] || player.keys['ShiftRight']) ? runSpeed : walkSpeed;
     const newPos = { x: player.x, y: player.y };
-    let moved = false;
+
+    let dx = 0;
+    let dy = 0;
 
     if (player.keys['ArrowUp'] || player.keys['KeyK']) {
-      newPos.y -= currentSpeed;
-      player.direction = 'up';
-      moved = true;
+      dy = -currentSpeed;
     }
     if (player.keys['ArrowDown'] || player.keys['KeyJ']) {
-      newPos.y += currentSpeed;
-      player.direction = 'down';
-      moved = true;
+      dy = currentSpeed;
     }
     if (player.keys['ArrowLeft'] || player.keys['KeyH']) {
-      newPos.x -= currentSpeed;
-      player.direction = 'left';
-      moved = true;
+      dx = -currentSpeed;
     }
     if (player.keys['ArrowRight'] || player.keys['KeyL']) {
-      newPos.x += currentSpeed;
-      player.direction = 'right';
-      moved = true;
+      dx = currentSpeed;
     }
 
-    if (moved && isValidPosition(newPos, id)) {
-      player.x = newPos.x;
-      player.y = newPos.y;
+    // Move on x-axis
+    if (dx !== 0) {
+      newPos.x += dx;
+      if (isValidPosition(newPos, id)) {
+        player.x = newPos.x;
+      } else {
+        newPos.x -= dx; // Reset x if collision
+      }
+    }
+
+    // Move on y-axis
+    if (dy !== 0) {
+      newPos.y += dy;
+      if (isValidPosition(newPos, id)) {
+        player.y = newPos.y;
+      } else {
+        newPos.y -= dy; // Reset y if collision
+      }
     }
   }
 
   // Broadcast the updated state to all clients
   broadcast({ type: 'update', players });
 }
-
 
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {

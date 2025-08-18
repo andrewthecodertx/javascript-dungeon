@@ -22,11 +22,12 @@ let mapLayout = [];
 let tileTypes = {};
 const TILE_SIZE = 32;
 
+
 const keys = {};
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 28; // smaller for collision
-const hitboxHeight = 36; // smaller for collision
+const hitboxWidth = 32; // smaller for collision
+const hitboxHeight = 40; // smaller for collision
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
 const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
 const walkSpeed = 2;
@@ -50,6 +51,15 @@ const baseSprites = {
 };
 
 let allSpritesLoaded = false;
+let mapDataReceived = false;
+let gameLoopStarted = false;
+
+function startGameLoopIfReady() {
+  if (allSpritesLoaded && mapDataReceived && !gameLoopStarted) {
+    gameLoopStarted = true;
+    gameLoop();
+  }
+}
 
 function loadBaseSprites() {
   let loadedCount = 0;
@@ -60,7 +70,7 @@ function loadBaseSprites() {
     if (loadedCount === totalImages) {
       console.log('All base sprites loaded');
       allSpritesLoaded = true;
-      gameLoop();
+      startGameLoopIfReady();
     }
   };
 
@@ -68,11 +78,12 @@ function loadBaseSprites() {
     for (const direction in baseSprites[action]) {
       const img = baseSprites[action][direction];
       img.onload = onImageLoad;
+      img.onerror = () => console.error(`Failed to load sprite: ${img.src}`);
       let pathAction = action.toLowerCase();
       if (action.startsWith('ATTACK')) {
         pathAction = action.replace(' ', '').toLowerCase();
       }
-      img.src = `sprites/${action}/${pathAction}_${direction}.png`;
+      img.src = `public/sprites/${action}/${pathAction}_${direction}.png`;
     }
   }
 }
@@ -151,6 +162,8 @@ ws.onmessage = event => {
     case 'map':
       mapLayout = data.layout;
       tileTypes = data.tiles;
+      mapDataReceived = true;
+      startGameLoopIfReady();
       break;
     case 'update':
       if (!allSpritesLoaded) return;
@@ -196,17 +209,17 @@ function drawMap() {
   if (!mapLayout.length) return;
 
   const tileColors = {
-    0: '#808080', // Floor - Gray
-    1: '#303030', // Wall - Dark Gray
-    2: '#964B00', // Door - Brown
-    3: '#654321', // Locked Door - Dark Brown
-    4: '#0000FF'  // Stairs - Blue
+    0: '#808080', // Floor
+    1: '#303030', // Wall
+    2: '#964B00', // Door
+    3: '#654321', // LockedDoor
+    4: '#0000FF', // Stairs
   };
 
   for (let y = 0; y < mapLayout.length; y++) {
     for (let x = 0; x < mapLayout[y].length; x++) {
       const tileId = mapLayout[y][x];
-      ctx.fillStyle = tileColors[tileId] || '#FFFFFF'; // Default to white if unknown
+      ctx.fillStyle = tileColors[tileId] || '#FFFFFF'; // Default to white
       ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     }
   }
@@ -249,21 +262,14 @@ function draw() {
   }
 }
 
-function gameLoop() {
-  // handleMovement(); // No longer needed here
-  draw();
-  requestAnimationFrame(gameLoop);
-}
-
 function sendInputState() {
   if (!localPlayerId || !players[localPlayerId]) return;
 
   const player = players[localPlayerId];
   let action = 'IDLE';
-  let direction = player.direction; // Keep last direction
+  let direction = player.direction;
   let moved = false;
 
-  // Determine action and direction based on current keys
   if (keys['KeyA']) {
     action = 'ATTACK 1';
   } else if (keys['KeyS']) {
@@ -287,17 +293,20 @@ function sendInputState() {
     action = moved ? 'RUN' : 'IDLE';
   }
 
-  // Send input state to the server
   ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
 }
 
+function gameLoop() {
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
 document.addEventListener('keydown', e => {
-  if (!keys[e.code]) { // Only send if the key state changes
+  if (!keys[e.code]) { // Prevent spamming messages for held keys
     keys[e.code] = true;
     sendInputState();
   }
 });
-
 document.addEventListener('keyup', e => {
   keys[e.code] = false;
   sendInputState();
