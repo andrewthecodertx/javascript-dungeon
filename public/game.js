@@ -8,7 +8,7 @@ let wsUrl;
 
 if (isProduction) {
   // In production, the WebSocket server is on the same host.
-  wsUrl = `${wsProtocol}//${window.location.host}/server`;
+  wsUrl = `${wsProtocol}//${window.location.host}`;
 } else {
   // In development, the WebSocket server is on localhost:8080.
   wsUrl = `${wsProtocol}//localhost:8080`;
@@ -163,6 +163,7 @@ ws.onmessage = event => {
       mapLayout = data.layout;
       tileTypes = data.tiles;
       mapDataReceived = true;
+      console.log("Map data received:", mapLayout);
       startGameLoopIfReady();
       break;
     case 'update':
@@ -206,20 +207,13 @@ ws.onmessage = event => {
 };
 
 function drawMap() {
-  if (!mapLayout.length) return;
-
-  const tileColors = {
-    0: '#808080', // Floor
-    1: '#303030', // Wall
-    2: '#964B00', // Door
-    3: '#654321', // LockedDoor
-    4: '#0000FF', // Stairs
-  };
+  if (!mapLayout.length || !Object.keys(tileTypes).length) return;
 
   for (let y = 0; y < mapLayout.length; y++) {
     for (let x = 0; x < mapLayout[y].length; x++) {
       const tileId = mapLayout[y][x];
-      ctx.fillStyle = tileColors[tileId] || '#FFFFFF'; // Default to white
+      const tile = tileTypes[tileId];
+      ctx.fillStyle = tile ? tile.color : '#FFFFFF'; // Default to white
       ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     }
   }
@@ -263,37 +257,9 @@ function draw() {
 }
 
 function sendInputState() {
-  if (!localPlayerId || !players[localPlayerId]) return;
-
-  const player = players[localPlayerId];
-  let action = 'IDLE';
-  let direction = player.direction;
-  let moved = false;
-
-  if (keys['KeyA']) {
-    action = 'ATTACK 1';
-  } else if (keys['KeyS']) {
-    action = 'ATTACK 2';
-  } else {
-    if (keys['ArrowUp'] || keys['KeyK']) {
-      direction = 'up';
-      moved = true;
-    } else if (keys['ArrowDown'] || keys['KeyJ']) {
-      direction = 'down';
-      moved = true;
-    }
-
-    if (keys['ArrowLeft'] || keys['KeyH']) {
-      direction = 'left';
-      moved = true;
-    } else if (keys['ArrowRight'] || keys['KeyL']) {
-      direction = 'right';
-      moved = true;
-    }
-    action = moved ? 'RUN' : 'IDLE';
-  }
-
-  ws.send(JSON.stringify({ type: 'input', keys, action, direction }));
+  if (!localPlayerId) return;
+  console.log('Sending keys:', keys); // DEBUG LOG
+  ws.send(JSON.stringify({ type: 'input', keys }));
 }
 
 function gameLoop() {

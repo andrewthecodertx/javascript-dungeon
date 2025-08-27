@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const { TILE_SIZE, tileTypes, mapLayout } = require('./map');
+const { TILE_SIZE, tileTypes, maps } = require('./map');
 
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -28,7 +28,7 @@ const runSpeed = 4;
 const validActions = ['IDLE', 'RUN', 'ATTACK 1', 'ATTACK 2'];
 const validDirections = ['up', 'down', 'left', 'right'];
 
-function isValidPosition(newPos, playerId) {
+function isValidPosition(newPos, playerId, room) {
   const newHitbox = {
     x: newPos.x + hitboxOffsetX,
     y: newPos.y + hitboxOffsetY,
@@ -40,6 +40,9 @@ function isValidPosition(newPos, playerId) {
   if (newHitbox.x < 0 || newHitbox.x + newHitbox.width > canvasWidth || newHitbox.y < 0 || newHitbox.y + newHitbox.height > canvasHeight) {
     return false;
   }
+
+  const map = maps[room];
+  if (!map) return false; // Room doesn't exist
 
   // 2. Check tile map collision
   const corners = [
@@ -53,11 +56,11 @@ function isValidPosition(newPos, playerId) {
     const tileX = Math.floor(corner.x / TILE_SIZE);
     const tileY = Math.floor(corner.y / TILE_SIZE);
 
-    if (tileY < 0 || tileY >= mapLayout.length || tileX < 0 || tileX >= mapLayout[0].length) {
+    if (tileY < 0 || tileY >= map.layout.length || tileX < 0 || tileX >= map.layout[0].length) {
       return false; // Out of map bounds
     }
 
-    const tileType = mapLayout[tileY][tileX];
+    const tileType = map.layout[tileY][tileX];
     if (!tileTypes[tileType] || !tileTypes[tileType].walkable) {
       return false; // Not a walkable tile
     }
@@ -65,7 +68,7 @@ function isValidPosition(newPos, playerId) {
 
   // 3. Check player collision
   for (const id in players) {
-    if (id !== playerId && players[id]) {
+    if (id !== playerId && players[id] && players[id].room === room) {
       const otherPlayer = players[id];
       const otherHitbox = {
         x: otherPlayer.x + hitboxOffsetX,
@@ -87,16 +90,27 @@ function isValidPosition(newPos, playerId) {
   return true;
 }
 
-const walkableTiles = [];
-for (let y = 0; y < mapLayout.length; y++) {
-  for (let x = 0; x < mapLayout[y].length; x++) {
-    if (tileTypes[mapLayout[y][x]].walkable) {
-      walkableTiles.push({ x, y });
+function getWalkableTiles(room) {
+  const walkable = [];
+  const map = maps[room];
+  if (!map) return walkable;
+
+  for (let y = 0; y < map.layout.length; y++) {
+    for (let x = 0; x < map.layout[y].length; x++) {
+      if (tileTypes[map.layout[y][x]].walkable) {
+        walkable.push({ x, y });
+      }
     }
   }
+  return walkable;
 }
 
-function getSafeSpawnPoint() {
+function getSafeSpawnPoint(room) {
+  const walkableTiles = getWalkableTiles(room);
+  if (walkableTiles.length === 0) {
+    return { x: TILE_SIZE, y: TILE_SIZE }; // Fallback
+  }
+
   let attempts = 0;
   while (attempts < 100) {
     const randomTile = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
@@ -105,13 +119,13 @@ function getSafeSpawnPoint() {
       y: randomTile.y * TILE_SIZE + (TILE_SIZE - playerHeight) / 2
     };
 
-    if (isValidPosition(potentialPos, null)) {
+    if (isValidPosition(potentialPos, null, room)) {
       return potentialPos;
     }
     attempts++;
   }
   // Fallback if no safe spot is found
-  const fallbackTile = walkableTiles[0] || { x: 1, y: 1 };
+  const fallbackTile = walkableTiles[0];
   return {
     x: fallbackTile.x * TILE_SIZE,
     y: fallbackTile.y * TILE_SIZE
@@ -132,9 +146,9 @@ wss.on('connection', ws => {
   });
 
   ws.messageTimestamps = [];
-  const spawnPoint = getSafeSpawnPoint();
+  const startRoom = 'room1';
+  const spawnPoint = getSafeSpawnPoint(startRoom);
 
-  // Initialize player with all required properties for the new animation system
   players[id] = {
     x: spawnPoint.x,
     y: spawnPoint.y,
@@ -142,18 +156,15 @@ wss.on('connection', ws => {
     action: 'IDLE',
     id: id,
     color: colors[Math.floor(Math.random() * colors.length)],
-    keys: {}, // Store key state on server
-    isRunning: false
+    keys: {},
+    room: startRoom,
+    ws: ws // Associate websocket with player
   };
 
-  // Assign the new player their ID
   ws.send(JSON.stringify({ type: 'assign_id', id }));
+  ws.send(JSON.stringify({ type: 'map', layout: maps[startRoom].layout, tiles: tileTypes }));
 
-  // Send the map layout to the new player
-  ws.send(JSON.stringify({ type: 'map', layout: mapLayout, tiles: tileTypes }));
-
-  // Send the complete player list to the new player and inform others
-  broadcast({ type: 'update', players });
+  broadcastRoomUpdates(startRoom);
 
   ws.on('message', message => {
     const now = Date.now();
@@ -171,17 +182,10 @@ wss.on('connection', ws => {
       const player = players[id];
       if (!player) return;
 
-      // Instead of accepting position, we accept input state
       if (data.type === 'input') {
-        // Sanitize and validate inputs
         if (data.keys) {
-          player.keys = data.keys; // Store the state of all keys
-        }
-        if (typeof data.action === 'string' && validActions.includes(data.action)) {
-          player.action = data.action;
-        }
-        if (typeof data.direction === 'string' && validDirections.includes(data.direction)) {
-          player.direction = data.direction;
+          // console.log(`Received keys from ${id}:`, data.keys); // DEBUG LOG
+          player.keys = data.keys;
         }
       }
     } catch (error) {
@@ -191,9 +195,12 @@ wss.on('connection', ws => {
 
   ws.on('close', () => {
     console.log(`Player ${id} disconnected`);
-    delete players[id];
-    // Inform all other players that this player has disconnected
-    broadcast({ type: 'player_disconnected', id });
+    const player = players[id];
+    if (player) {
+      const room = player.room;
+      delete players[id];
+      broadcast({ type: 'player_disconnected', id }, room);
+    }
   });
 
   ws.on('error', (error) => {
@@ -201,76 +208,163 @@ wss.on('connection', ws => {
   });
 });
 
-function broadcast(data) {
+function broadcast(data, room) {
   const message = JSON.stringify(data);
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(message);
+  for (const id in players) {
+    const player = players[id];
+    if (player.room === room && player.ws.readyState === WebSocket.OPEN) {
+      player.ws.send(message);
     }
-  });
+  }
+}
+
+function broadcastRoomUpdates(room) {
+  const playersInRoom = {};
+  for (const id in players) {
+    if (players[id].room === room) {
+      // Send a version of the player object without the websocket
+      const { ws, ...playerData } = players[id];
+      playersInRoom[id] = playerData;
+    }
+  }
+  broadcast({ type: 'update', players: playersInRoom }, room);
 }
 
 function gameTick() {
-  // Process movement for all players
+  const roomsToUpdate = new Set();
+
   for (const id in players) {
     const player = players[id];
-    if (player.action.startsWith('ATTACK')) continue; // No movement during attack
+    
+    // If player has recently teleported, skip a movement tick to prevent getting stuck
+    if (player.teleported) {
+      delete player.teleported;
+      continue;
+    }
+
+    // Server determines action and direction based on keys
+    let moved = false;
+    if (player.keys['ArrowUp'] || player.keys['KeyK']) {
+      player.direction = 'up';
+      moved = true;
+    } else if (player.keys['ArrowDown'] || player.keys['KeyJ']) {
+      player.direction = 'down';
+      moved = true;
+    } else if (player.keys['ArrowLeft'] || player.keys['KeyH']) {
+      player.direction = 'left';
+      moved = true;
+    } else if (player.keys['ArrowRight'] || player.keys['KeyL']) {
+      player.direction = 'right';
+      moved = true;
+    }
+
+    if (player.keys['KeyA']) {
+      player.action = 'ATTACK 1';
+    } else if (player.keys['KeyS']) {
+      player.action = 'ATTACK 2';
+    } else {
+      player.action = moved ? 'RUN' : 'IDLE';
+    }
+    
+    // if (id === 'DEBUG_PLAYER_ID') { // Replace with a real ID for targeted debugging
+    //   console.log(`Player ${id} keys:`, player.keys, `Action: ${player.action}`); // DEBUG LOG
+    // }
+
+    if (player.action.startsWith('ATTACK')) {
+      roomsToUpdate.add(player.room);
+      continue;
+    }
 
     const currentSpeed = (player.keys['ShiftLeft'] || player.keys['ShiftRight']) ? runSpeed : walkSpeed;
     const newPos = { x: player.x, y: player.y };
-
+    
     let dx = 0;
     let dy = 0;
 
-    if (player.keys['ArrowUp'] || player.keys['KeyK']) {
-      dy = -currentSpeed;
-    }
-    if (player.keys['ArrowDown'] || player.keys['KeyJ']) {
-      dy = currentSpeed;
-    }
-    if (player.keys['ArrowLeft'] || player.keys['KeyH']) {
-      dx = -currentSpeed;
-    }
-    if (player.keys['ArrowRight'] || player.keys['KeyL']) {
-      dx = currentSpeed;
-    }
+    if (player.keys['ArrowUp'] || player.keys['KeyK']) dy = -currentSpeed;
+    if (player.keys['ArrowDown'] || player.keys['KeyJ']) dy = currentSpeed;
+    if (player.keys['ArrowLeft'] || player.keys['KeyH']) dx = -currentSpeed;
+    if (player.keys['ArrowRight'] || player.keys['KeyL']) dx = currentSpeed;
 
-    // Move on x-axis
+    let positionChanged = false;
     if (dx !== 0) {
       newPos.x += dx;
-      if (isValidPosition(newPos, id)) {
+      if (isValidPosition(newPos, id, player.room)) {
         player.x = newPos.x;
+        positionChanged = true;
       } else {
-        newPos.x -= dx; // Reset x if collision
+        newPos.x -= dx;
       }
     }
 
-    // Move on y-axis
     if (dy !== 0) {
       newPos.y += dy;
-      if (isValidPosition(newPos, id)) {
+      if (isValidPosition(newPos, id, player.room)) {
         player.y = newPos.y;
+        positionChanged = true;
       } else {
-        newPos.y -= dy; // Reset y if collision
+        newPos.y -= dy;
+      }
+    }
+
+    if (moved || positionChanged) {
+      roomsToUpdate.add(player.room);
+    }
+
+    if (positionChanged) {
+      // Check for door transition
+      const playerTileX = Math.floor((player.x + hitboxOffsetX + hitboxWidth / 2) / TILE_SIZE);
+      const playerTileY = Math.floor((player.y + hitboxOffsetY + hitboxHeight / 2) / TILE_SIZE);
+      const currentMap = maps[player.room];
+
+      if (currentMap && currentMap.doors) {
+        for (const door of currentMap.doors) {
+          if (door.x === playerTileX && door.y === playerTileY) {
+            const oldRoom = player.room;
+            const newRoom = door.to.room;
+            
+            // Determine new position with an offset to avoid getting stuck
+            let newX, newY;
+            if (newRoom === 'room2') {
+              newX = (door.to.x + 1) * TILE_SIZE + (TILE_SIZE - playerWidth) / 2;
+              newY = (door.to.y + 1) * TILE_SIZE + (TILE_SIZE - playerHeight) / 2;
+            } else { // Assuming back to room1
+              newX = (door.to.x + 1) * TILE_SIZE + (TILE_SIZE - playerWidth) / 2;
+              newY = door.to.y * TILE_SIZE + (TILE_SIZE - playerHeight) / 2;
+            }
+
+            player.room = newRoom;
+            player.x = newX;
+            player.y = newY;
+            player.keys = {}; // Clear keys to stop movement
+            player.action = 'IDLE'; // Set action to IDLE
+            player.teleported = true; // Flag to prevent getting stuck
+
+            // Notify the client about the map change
+            player.ws.send(JSON.stringify({ type: 'map', layout: maps[newRoom].layout, tiles: tileTypes }));
+
+            roomsToUpdate.add(oldRoom);
+            roomsToUpdate.add(newRoom);
+            break; // Exit loop once a door is found
+          }
+        }
       }
     }
   }
 
-  // Broadcast the updated state to all clients
-  broadcast({ type: 'update', players });
+  roomsToUpdate.forEach(room => broadcastRoomUpdates(room));
 }
+
 
 const interval = setInterval(function ping() {
   wss.clients.forEach(function each(ws) {
     if (ws.isAlive === false) return ws.terminate();
-
     ws.isAlive = false;
     ws.ping();
   });
 }, 30000);
 
-// Start the game loop
-setInterval(gameTick, 1000 / 60); // 60 times per second
+setInterval(gameTick, 1000 / 60);
 
 wss.on('close', function close() {
   clearInterval(interval);
