@@ -8,19 +8,17 @@ const wss = new WebSocket.Server({ server });
 
 const { TILE_SIZE, tileTypes, maps } = require('./map');
 
-// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 let players = {};
 const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
 
-// Server-side game constants
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 16; // smaller for collision
-const hitboxHeight = 28; // Final height adjustment to cover feet
+const hitboxWidth = 16;
+const hitboxHeight = 28;
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
-const hitboxOffsetY = 30; // Fine-tuned offset based on detailed feedback
+const hitboxOffsetY = 30;
 const canvasWidth = 800;
 const canvasHeight = 600;
 const walkSpeed = 2;
@@ -36,20 +34,18 @@ function isValidPosition(newPos, playerId, room) {
     height: hitboxHeight
   };
 
-  // 1. Check canvas boundaries
   if (newHitbox.x < 0 || newHitbox.x + newHitbox.width > canvasWidth || newHitbox.y < 0 || newHitbox.y + newHitbox.height > canvasHeight) {
     return false;
   }
 
   const map = maps[room];
-  if (!map) return false; // Room doesn't exist
+  if (!map) return false;
 
-  // 2. Check tile map collision
   const corners = [
-    { x: newHitbox.x, y: newHitbox.y }, // top-left
-    { x: newHitbox.x + newHitbox.width, y: newHitbox.y }, // top-right
-    { x: newHitbox.x, y: newHitbox.y + newHitbox.height }, // bottom-left
-    { x: newHitbox.x + newHitbox.width, y: newHitbox.y + newHitbox.height } // bottom-right
+    { x: newHitbox.x, y: newHitbox.y },
+    { x: newHitbox.x + newHitbox.width, y: newHitbox.y },
+    { x: newHitbox.x, y: newHitbox.y + newHitbox.height },
+    { x: newHitbox.x + newHitbox.width, y: newHitbox.y + newHitbox.height }
   ];
 
   for (const corner of corners) {
@@ -57,16 +53,15 @@ function isValidPosition(newPos, playerId, room) {
     const tileY = Math.floor(corner.y / TILE_SIZE);
 
     if (tileY < 0 || tileY >= map.layout.length || tileX < 0 || tileX >= map.layout[0].length) {
-      return false; // Out of map bounds
+      return false;
     }
 
     const tileType = map.layout[tileY][tileX];
     if (!tileTypes[tileType] || !tileTypes[tileType].walkable) {
-      return false; // Not a walkable tile
+      return false;
     }
   }
 
-  // 3. Check player collision
   for (const id in players) {
     if (id !== playerId && players[id] && players[id].room === room) {
       const otherPlayer = players[id];
@@ -108,7 +103,7 @@ function getWalkableTiles(room) {
 function getSafeSpawnPoint(room) {
   const walkableTiles = getWalkableTiles(room);
   if (walkableTiles.length === 0) {
-    return { x: TILE_SIZE, y: TILE_SIZE }; // Fallback
+    return { x: TILE_SIZE, y: TILE_SIZE };
   }
 
   let attempts = 0;
@@ -124,14 +119,13 @@ function getSafeSpawnPoint(room) {
     }
     attempts++;
   }
-  // Fallback if no safe spot is found
+
   const fallbackTile = walkableTiles[0];
   return {
     x: fallbackTile.x * TILE_SIZE,
     y: fallbackTile.y * TILE_SIZE
   };
 }
-
 
 const MAX_MESSAGES_PER_SECOND = 60;
 const ONE_SECOND = 1000;
@@ -158,7 +152,7 @@ wss.on('connection', ws => {
     color: colors[Math.floor(Math.random() * colors.length)],
     keys: {},
     room: startRoom,
-    ws: ws // Associate websocket with player
+    ws: ws
   };
 
   ws.send(JSON.stringify({ type: 'assign_id', id }));
@@ -184,7 +178,6 @@ wss.on('connection', ws => {
 
       if (data.type === 'input') {
         if (data.keys) {
-          // console.log(`Received keys from ${id}:`, data.keys); // DEBUG LOG
           player.keys = data.keys;
         }
       }
@@ -235,14 +228,12 @@ function gameTick() {
 
   for (const id in players) {
     const player = players[id];
-    
-    // If player has recently teleported, skip a movement tick to prevent getting stuck
+
     if (player.teleported) {
       delete player.teleported;
       continue;
     }
 
-    // Server determines action and direction based on keys
     let moved = false;
     if (player.keys['ArrowUp'] || player.keys['KeyK']) {
       player.direction = 'up';
@@ -265,10 +256,6 @@ function gameTick() {
     } else {
       player.action = moved ? 'RUN' : 'IDLE';
     }
-    
-    // if (id === 'DEBUG_PLAYER_ID') { // Replace with a real ID for targeted debugging
-    //   console.log(`Player ${id} keys:`, player.keys, `Action: ${player.action}`); // DEBUG LOG
-    // }
 
     if (player.action.startsWith('ATTACK')) {
       roomsToUpdate.add(player.room);
@@ -277,7 +264,7 @@ function gameTick() {
 
     const currentSpeed = (player.keys['ShiftLeft'] || player.keys['ShiftRight']) ? runSpeed : walkSpeed;
     const newPos = { x: player.x, y: player.y };
-    
+
     let dx = 0;
     let dy = 0;
 
@@ -312,7 +299,6 @@ function gameTick() {
     }
 
     if (positionChanged) {
-      // Check for door transition
       const playerTileX = Math.floor((player.x + hitboxOffsetX + hitboxWidth / 2) / TILE_SIZE);
       const playerTileY = Math.floor((player.y + hitboxOffsetY + hitboxHeight / 2) / TILE_SIZE);
       const currentMap = maps[player.room];
@@ -322,8 +308,7 @@ function gameTick() {
           if (door.x === playerTileX && door.y === playerTileY) {
             const oldRoom = player.room;
             const newRoom = door.to.room;
-            
-            // Determine new position with an offset to avoid getting stuck
+
             let newX, newY;
             if (newRoom === 'room2') {
               newX = (door.to.x + 1) * TILE_SIZE + (TILE_SIZE - playerWidth) / 2;
@@ -336,16 +321,15 @@ function gameTick() {
             player.room = newRoom;
             player.x = newX;
             player.y = newY;
-            player.keys = {}; // Clear keys to stop movement
-            player.action = 'IDLE'; // Set action to IDLE
-            player.teleported = true; // Flag to prevent getting stuck
+            player.keys = {};
+            player.action = 'IDLE';
+            player.teleported = true;
 
-            // Notify the client about the map change
             player.ws.send(JSON.stringify({ type: 'map', layout: maps[newRoom].layout, tiles: tileTypes }));
 
             roomsToUpdate.add(oldRoom);
             roomsToUpdate.add(newRoom);
-            break; // Exit loop once a door is found
+            break;
           }
         }
       }

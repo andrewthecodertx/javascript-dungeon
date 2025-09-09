@@ -2,15 +2,12 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-// Determine WebSocket URL based on environment (dev vs. prod)
 const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 let wsUrl;
 
 if (isProduction) {
-  // In production, the WebSocket server is on the same host.
   wsUrl = `${wsProtocol}//${window.location.host}`;
 } else {
-  // In development, the WebSocket server is on localhost:8080.
   wsUrl = `${wsProtocol}//localhost:8080`;
 }
 
@@ -26,14 +23,14 @@ const TILE_SIZE = 32;
 const keys = {};
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 32; // smaller for collision
-const hitboxHeight = 40; // smaller for collision
+const hitboxWidth = 32;
+const hitboxHeight = 40;
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
 const hitboxOffsetY = (playerHeight - hitboxHeight) / 2;
 const walkSpeed = 2;
 const runSpeed = 4;
 const frameCount = 8;
-const animationSpeed = 100; // ms per frame
+const animationSpeed = 100;
 
 const baseSprites = {
   'IDLE': {
@@ -98,8 +95,6 @@ function hexToRgb(hex) {
 }
 
 function isSkinTone(r, g, b) {
-  // This is a simple skin tone detection. It looks for colors that are reddish/brownish
-  // and not too dark or too light. It also excludes grayscale colors.
   const isBrownish = r > g && g > b;
   const isLightEnough = r > 60 && g > 40 && b > 20;
   const isNotTooRed = r < 240;
@@ -114,7 +109,6 @@ function recolorSprite(image, color) {
   newCanvas.height = image.height;
   const ctx = newCanvas.getContext('2d');
 
-  // Draw the original image
   ctx.drawImage(image, 0, 0);
 
   if (image.width === 0 || image.height === 0) {
@@ -125,7 +119,7 @@ function recolorSprite(image, color) {
   const data = imageData.data;
   const tintRgb = hexToRgb(color);
 
-  if (!tintRgb) return newCanvas; // Return original if color is invalid
+  if (!tintRgb) return newCanvas;
 
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
@@ -133,14 +127,11 @@ function recolorSprite(image, color) {
     const b = data[i + 2];
     const a = data[i + 3];
 
-    // Skip transparent pixels
     if (a === 0) {
       continue;
     }
 
-    // Check if the pixel is not a skin tone
     if (!isSkinTone(r, g, b)) {
-      // Apply tint using a multiply-like effect
       data[i] = (r * tintRgb.r) / 255;
       data[i + 1] = (g * tintRgb.g) / 255;
       data[i + 2] = (b * tintRgb.b) / 255;
@@ -177,12 +168,10 @@ ws.onmessage = event => {
         newPlayers[id] = serverPlayer;
 
         if (existingPlayer) {
-          // Preserve existing animation state and sprites
           newPlayers[id].frame = existingPlayer.frame;
           newPlayers[id].animationTimer = existingPlayer.animationTimer;
           newPlayers[id].sprites = existingPlayer.sprites;
         } else {
-          // Initialize animation state and sprites for new player
           newPlayers[id].frame = 0;
           newPlayers[id].animationTimer = 0;
           newPlayers[id].sprites = { 'IDLE': {}, 'RUN': {}, 'ATTACK 1': {}, 'ATTACK 2': {} }; // Create the structure
@@ -213,7 +202,7 @@ function drawMap() {
     for (let x = 0; x < mapLayout[y].length; x++) {
       const tileId = mapLayout[y][x];
       const tile = tileTypes[tileId];
-      ctx.fillStyle = tile ? tile.color : '#FFFFFF'; // Default to white
+      ctx.fillStyle = tile ? tile.color : '#FFFFFF';
       ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
     }
   }
@@ -227,8 +216,7 @@ function draw() {
     const player = players[id];
     if (!player || !player.sprites) continue;
 
-    // Animate all players based on their state
-    player.animationTimer = (player.animationTimer || 0) + 16; // Approximate time per frame
+    player.animationTimer = (player.animationTimer || 0) + 16;
     if (player.animationTimer > animationSpeed) {
       player.frame = (player.frame + 1);
       player.animationTimer = 0;
@@ -249,8 +237,8 @@ function draw() {
       const frameX = player.frame * playerWidth;
       ctx.drawImage(
         spriteSheet,
-        frameX, 0, playerWidth, playerHeight, // Source rectangle
-        player.x, player.y, playerWidth, playerHeight // Destination rectangle
+        frameX, 0, playerWidth, playerHeight,
+        player.x, player.y, playerWidth, playerHeight
       );
     }
   }
@@ -268,7 +256,7 @@ function gameLoop() {
 }
 
 document.addEventListener('keydown', e => {
-  if (!keys[e.code]) { // Prevent spamming messages for held keys
+  if (!keys[e.code]) {
     keys[e.code] = true;
     sendInputState();
   }
