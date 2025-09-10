@@ -15,8 +15,8 @@ const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'
 
 const playerWidth = 96;
 const playerHeight = 80;
-const hitboxWidth = 16;
-const hitboxHeight = 28;
+const hitboxWidth = 14;
+const hitboxHeight = 26;
 const hitboxOffsetX = (playerWidth - hitboxWidth) / 2;
 const hitboxOffsetY = 30;
 const canvasWidth = 800;
@@ -234,6 +234,8 @@ function gameTick() {
       continue;
     }
 
+    const oldAction = player.action;
+
     let moved = false;
     if (player.keys['ArrowUp'] || player.keys['KeyK']) {
       player.direction = 'up';
@@ -256,6 +258,8 @@ function gameTick() {
     } else {
       player.action = moved ? 'RUN' : 'IDLE';
     }
+
+    const actionChanged = oldAction !== player.action;
 
     if (player.action.startsWith('ATTACK')) {
       roomsToUpdate.add(player.room);
@@ -294,7 +298,7 @@ function gameTick() {
       }
     }
 
-    if (moved || positionChanged) {
+    if (moved || positionChanged || actionChanged) {
       roomsToUpdate.add(player.room);
     }
 

@@ -1,8 +1,8 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-
 const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+
 let wsUrl;
 
 if (isProduction) {
@@ -17,9 +17,8 @@ let localPlayerId = null;
 let players = {};
 let mapLayout = [];
 let tileTypes = {};
+
 const TILE_SIZE = 32;
-
-
 const keys = {};
 const playerWidth = 96;
 const playerHeight = 80;
