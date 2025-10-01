@@ -31,4 +31,4 @@ jobs:
           script: |
             cd /var/www/developersandbox_xyz/dungeon
             npm install
-            pm2 restart dungeon
+            /home/andrew/.nvm/versions/node/v23.11.1/bin/pm2 restart dungeon
