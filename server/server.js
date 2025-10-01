@@ -23,8 +23,6 @@ const canvasWidth = 800;
 const canvasHeight = 600;
 const walkSpeed = 2;
 const runSpeed = 4;
-const validActions = ['IDLE', 'RUN', 'ATTACK 1', 'ATTACK 2'];
-const validDirections = ['up', 'down', 'left', 'right'];
 
 function isValidPosition(newPos, playerId, room) {
   const newHitbox = {
@@ -336,7 +334,7 @@ function gameTick() {
                 const checkX = destX + offset.dx;
                 const checkY = destY + offset.dy;
                 if (checkY >= 0 && checkY < destMap.layout.length &&
-                    checkX >= 0 && checkX < destMap.layout[0].length) {
+                  checkX >= 0 && checkX < destMap.layout[0].length) {
                   const tileType = destMap.layout[checkY][checkX];
                   if (tileTypes[tileType] && tileTypes[tileType].walkable && tileType !== 4) {
                     offsetX = offset.dx;

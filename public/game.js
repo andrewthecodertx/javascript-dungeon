@@ -6,7 +6,7 @@ const isProduction = window.location.hostname !== 'localhost' && window.location
 let wsUrl;
 
 if (isProduction) {
-  wsUrl = `${wsProtocol}//${window.location.host}`;
+  wsUrl = `${wsProtocol}//${window.location.host}/server`;
 } else {
   wsUrl = `${wsProtocol}//localhost:8080`;
 }
