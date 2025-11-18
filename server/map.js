@@ -60,7 +60,7 @@ const maps = {
     ],
     doors: [
       { x: 1, y: 1, to: { room: 'room1', x: 1, y: 16 } },
-      { x: 23, y: 9, to: { room: 'room3', x: 1, y: 9 } }
+      { x: 23, y: 9, to: { room: 'room3', x: 1, y: 1 } }
     ]
   },
   room3: {
