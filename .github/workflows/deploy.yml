@@ -2,33 +2,37 @@ name: Deploy to Production
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    workflow_dispatch:
 
 jobs:
   deploy:
+    - name: Deplot to Server
     runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.9.0
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Copy files
-        run: |
-          scp -o StrictHostKeyChecking=no -r ./* ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/var/www/developersandbox_xyz/dungeon/
+    - name: Copy files
+      run: |
+        scp -o StrictHostKeyChecking=no -r ./* ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/var/www/andrewthecoder_com/dungeon
 
-      - name: Restart node
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cd /var/www/developersandbox_xyz/dungeon
-            npm install
-            /home/andrew/.nvm/versions/node/v23.11.1/bin/pm2 restart dungeon
+    - name: Restart node
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /var/www/andrewthecoder_com/dungeon
+          npm install
+          ~/.npm-global/bin/pm2 restart dungeon --update-env \
+          || ~/.npm-global/bin/pm2 \
+          start /var/www/andrewthecoder_com/dungeon/server/server.js --name dungeon
+          ~/.npm-globle/bin/pm2 save
