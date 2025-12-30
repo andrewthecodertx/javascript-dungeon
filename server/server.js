@@ -10,6 +10,10 @@ const { TILE_SIZE, tileTypes, maps } = require('./map');
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'index.html'));
+});
+
 let players = {};
 const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
 
