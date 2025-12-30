@@ -7,8 +7,8 @@ on:
 
 jobs:
   deploy:
-    - name: Deplot to Server
-    runs-on: ubuntu-latest
+    - name: Deploy to Server
+      runs-on: ubuntu-latest
 
   steps:
     - name: Checkout code
