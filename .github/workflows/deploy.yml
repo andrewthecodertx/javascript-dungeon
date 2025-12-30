@@ -35,4 +35,4 @@ jobs:
           ~/.npm-global/bin/pm2 restart dungeon --update-env \
           || ~/.npm-global/bin/pm2 \
           start /var/www/andrewthecoder_com/dungeon/server/server.js --name dungeon
-          ~/.npm-globle/bin/pm2 save
+          ~/.npm-global/bin/pm2 save
