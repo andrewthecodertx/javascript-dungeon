@@ -8,9 +8,9 @@ const isProduction =
 let wsUrl;
 
 if (isProduction) {
-  wsUrl = `${wsProtocol}//${window.location.host}/dungeonserver`;
+  wsUrl = `wss://${window.location.host}/dungeonserver`;
 } else {
-  wsUrl = `${wsProtocol}//localhost:8080`;
+  wsUrl = `ws://localhost:8080`;
 }
 
 const ws = new WebSocket(wsUrl);
