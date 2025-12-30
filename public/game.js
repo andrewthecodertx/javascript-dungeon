@@ -116,7 +116,7 @@ function loadBaseSprites() {
       if (action.startsWith("ATTACK")) {
         pathAction = action.replace(" ", "").toLowerCase();
       }
-      img.src = `public/sprites/${action}/${pathAction}_${direction}.png`;
+      img.src = `sprites/${action}/${pathAction}_${direction}.png`;
     }
   }
 }
