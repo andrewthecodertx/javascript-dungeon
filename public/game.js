@@ -8,7 +8,7 @@ const isProduction =
 let wsUrl;
 
 if (isProduction) {
-  wsUrl = `wss://${window.location.host}/dungeonserver`;
+  wsUrl = `wss://${window.location.host}:5555`;
 } else {
   wsUrl = `ws://localhost:8080`;
 }
